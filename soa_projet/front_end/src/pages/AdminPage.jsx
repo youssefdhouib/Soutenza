@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import client, { extractApiError } from '../api/client';
+import ConfirmModal from '../components/ConfirmModal';
 
 const defenseStatuses = ['DRAFT', 'PLANNED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
 const juryRoles = ['PRESIDENT', 'RAPPORTEUR', 'EXAMINATEUR'];
@@ -100,13 +101,15 @@ export default function AdminPage() {
 
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
 
   const supervisors = useMemo(() => teachers, [teachers]);
-
 
   const clearNotice = () => {
     setMessage('');
     setError('');
+    setFieldErrors({});
   };
 
   const loadAll = async () => {
@@ -138,10 +141,10 @@ export default function AdminPage() {
       const payload = normalizePayload(studentForm);
       if (studentForm.id) {
         await client.put(`/students/${studentForm.id}`, payload);
-        setMessage('Étudiant mis à jour.');
+        setMessage("Les informations de l'étudiant ont été mises à jour avec succès.");
       } else {
         await client.post('/students', payload);
-        setMessage('Étudiant créé.');
+        setMessage("L'étudiant a été créé avec succès.");
       }
       setStudentForm(initialStudent);
       await loadAll();
@@ -157,10 +160,10 @@ export default function AdminPage() {
       const payload = normalizePayload(teacherForm);
       if (teacherForm.id) {
         await client.put(`/teachers/${teacherForm.id}`, payload);
-        setMessage('Enseignant mis à jour.');
+        setMessage("Les informations de l'enseignant ont été mises à jour avec succès.");
       } else {
         await client.post('/teachers', payload);
-        setMessage('Enseignant créé.');
+        setMessage("L'enseignant a été créé avec succès.");
       }
       setTeacherForm(initialTeacher);
       await loadAll();
@@ -172,14 +175,20 @@ export default function AdminPage() {
   const handleRoomSubmit = async (e) => {
     e.preventDefault();
     clearNotice();
+    
+    if (roomForm.capacity <= 0) {
+      setFieldErrors({ roomCapacity: "Erreur de validation : La capacité de la salle doit être strictement supérieure à zéro." });
+      return;
+    }
+
     try {
       const payload = normalizePayload(roomForm);
       if (roomForm.id) {
         await client.put(`/rooms/${roomForm.id}`, payload);
-        setMessage('Salle mise à jour.');
+        setMessage("Les informations de la salle ont été mises à jour avec succès.");
       } else {
         await client.post('/rooms', payload);
-        setMessage('Salle créée.');
+        setMessage("La salle a été créée avec succès.");
       }
       setRoomForm(initialRoom);
       await loadAll();
@@ -191,14 +200,20 @@ export default function AdminPage() {
   const handleDefenseSubmit = async (e) => {
     e.preventDefault();
     clearNotice();
+
+    if (new Date(defenseForm.startDateTime) >= new Date(defenseForm.endDateTime)) {
+      setFieldErrors({ defenseDates: "Erreur de validation : La date de début de la soutenance doit être antérieure à la date de fin." });
+      return;
+    }
+
     try {
       const payload = normalizePayload(defenseForm);
       if (defenseForm.id) {
         await client.put(`/defenses/${defenseForm.id}`, payload);
-        setMessage('Soutenance mise à jour.');
+        setMessage("La soutenance a été mise à jour avec succès.");
       } else {
         await client.post('/defenses', payload);
-        setMessage('Soutenance créée.');
+        setMessage("La soutenance a été créée avec succès.");
       }
       setDefenseForm(initialDefense);
       await loadAll();
@@ -207,16 +222,25 @@ export default function AdminPage() {
     }
   };
 
-  const deleteItem = async (type, id) => {
-    if (!window.confirm('Confirmer la suppression ?')) return;
-    clearNotice();
-    try {
-      await client.delete(`/${type}/${id}`);
-      setMessage('Suppression effectuée.');
-      await loadAll();
-    } catch (err) {
-      setError(extractApiError(err));
-    }
+  const confirmDelete = (type, id) => {
+    let typeName = type === 'students' ? 'cet étudiant' : type === 'rooms' ? 'cette salle' : type === 'defenses' ? 'cette soutenance' : 'cet élément';
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Confirmer la suppression',
+      message: `Attention: Êtes-vous sûr de vouloir supprimer ${typeName} ? Cette action est irréversible et supprimera toutes les données associées.`,
+      confirmVariant: 'danger',
+      onConfirm: async () => {
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+        clearNotice();
+        try {
+          await client.delete(`/${type}/${id}`);
+          setMessage("La suppression a été effectuée avec succès.");
+          await loadAll();
+        } catch (err) {
+          setError(extractApiError(err));
+        }
+      }
+    });
   };
 
   const editDefense = (defense) => {
@@ -258,12 +282,19 @@ export default function AdminPage() {
 
   const saveJuryAssignments = async () => {
     clearNotice();
+
+    const hasPresident = juryRows.some((row) => row.teacherId && row.juryRole === 'PRESIDENT');
+    if (!hasPresident) {
+      setFieldErrors({ jury: "Erreur de validation : Le jury doit comporter au moins un Président." });
+      return;
+    }
+
     try {
       const payload = juryRows
         .filter((row) => row.teacherId)
         .map((row) => ({ teacherId: Number(row.teacherId), juryRole: row.juryRole }));
       await client.put(`/defenses/${selectedDefenseForJury}/jury`, payload);
-      setMessage('Affectation jury mise à jour.');
+      setMessage("Les membres du jury ont été affectés à la soutenance avec succès.");
       await loadAll();
       await loadJuryForDefense(selectedDefenseForJury);
     } catch (err) {
@@ -271,15 +302,25 @@ export default function AdminPage() {
     }
   };
 
-  const publishDefense = async (defenseId) => {
-    clearNotice();
-    try {
-      await client.post(`/publications/defenses/${defenseId}/publish`);
-      setMessage('Résultat publié avec succès.');
-      await loadAll();
-    } catch (err) {
-      setError(extractApiError(err));
-    }
+  const confirmPublishDefense = (defenseId) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Publier les résultats',
+      message: "Confirmation : Voulez-vous vraiment publier les résultats de cette soutenance ? Une fois publiés, ils seront visibles par l'étudiant sur son espace personnel.",
+      confirmVariant: 'success',
+      confirmText: 'Publier',
+      onConfirm: async () => {
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+        clearNotice();
+        try {
+          await client.post(`/publications/defenses/${defenseId}/publish`);
+          setMessage("Les résultats de la soutenance ont été publiés avec succès.");
+          await loadAll();
+        } catch (err) {
+          setError(extractApiError(err));
+        }
+      }
+    });
   };
 
   const handleRegisterStudent = async (e) => {
@@ -287,7 +328,7 @@ export default function AdminPage() {
     clearNotice();
     try {
       const res = await client.post('/auth/register/student', registerStudentForm);
-      setMessage(res.data.message);
+      setMessage(res.data.message || "Le compte étudiant a été créé et l'email avec le mot de passe a été envoyé avec succès.");
       setRegisterStudentForm(initialRegisterStudent);
       await loadAll();
     } catch (err) {
@@ -300,7 +341,7 @@ export default function AdminPage() {
     clearNotice();
     try {
       const res = await client.post('/auth/register/teacher', registerTeacherForm);
-      setMessage(res.data.message);
+      setMessage(res.data.message || "Le compte enseignant/jury a été créé et l'email avec le mot de passe a été envoyé avec succès.");
       setRegisterTeacherForm(initialRegisterTeacher);
       await loadAll();
     } catch (err) {
@@ -353,12 +394,7 @@ export default function AdminPage() {
               <label className="field"><span>Email</span><input type="email" value={registerTeacherForm.email} onChange={(e) => setRegisterTeacherForm({ ...registerTeacherForm, email: e.target.value })} required /></label>
               <label className="field"><span>Grade</span><input value={registerTeacherForm.rank} onChange={(e) => setRegisterTeacherForm({ ...registerTeacherForm, rank: e.target.value })} required /></label>
               <label className="field"><span>Spécialité</span><input value={registerTeacherForm.specialty} onChange={(e) => setRegisterTeacherForm({ ...registerTeacherForm, specialty: e.target.value })} required /></label>
-              <label className="field">
-                <span>Rôle</span>
-                <select value={registerTeacherForm.role} onChange={(e) => setRegisterTeacherForm({ ...registerTeacherForm, role: e.target.value })}>
-                  {teacherRoles.map((r) => <option key={r} value={r}>{r}</option>)}
-                </select>
-              </label>
+
             </div>
             <div className="actions">
               <button>Créer et envoyer l'email</button>
@@ -371,21 +407,26 @@ export default function AdminPage() {
       <section className="grid cols-2">
         <article className="card">
           <h3>Étudiants</h3>
-          <form className="grid" onSubmit={handleStudentSubmit}>
-            <div className="form-grid">
-              <label className="field"><span>Code</span><input value={studentForm.studentCode} onChange={(e) => setStudentForm({ ...studentForm, studentCode: e.target.value })} required /></label>
-              <label className="field"><span>Prénom</span><input value={studentForm.firstName} onChange={(e) => setStudentForm({ ...studentForm, firstName: e.target.value })} required /></label>
-              <label className="field"><span>Nom</span><input value={studentForm.lastName} onChange={(e) => setStudentForm({ ...studentForm, lastName: e.target.value })} required /></label>
-              <label className="field"><span>Email</span><input type="email" value={studentForm.email} onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })} required /></label>
-              <label className="field"><span>Département</span><input value={studentForm.department} onChange={(e) => setStudentForm({ ...studentForm, department: e.target.value })} required /></label>
-              <label className="field"><span>Niveau</span><input value={studentForm.level} onChange={(e) => setStudentForm({ ...studentForm, level: e.target.value })} required /></label>
-              <label className="field"><span>ID Utilisateur (optionnel)</span><input type="number" value={studentForm.userId} onChange={(e) => setStudentForm({ ...studentForm, userId: e.target.value })} placeholder="Laisser vide pour ne pas lier" /></label>
+          {studentForm.id && (
+            <div style={{ marginBottom: '1.5rem', padding: '1rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <h4 style={{ marginTop: 0, color: '#0f3c78', marginBottom: '1rem' }}>Modifier l'étudiant</h4>
+              <form className="grid" onSubmit={handleStudentSubmit}>
+                <div className="form-grid">
+                  <label className="field"><span>Code</span><input value={studentForm.studentCode} onChange={(e) => setStudentForm({ ...studentForm, studentCode: e.target.value })} required /></label>
+                  <label className="field"><span>Prénom</span><input value={studentForm.firstName} onChange={(e) => setStudentForm({ ...studentForm, firstName: e.target.value })} required /></label>
+                  <label className="field"><span>Nom</span><input value={studentForm.lastName} onChange={(e) => setStudentForm({ ...studentForm, lastName: e.target.value })} required /></label>
+                  <label className="field"><span>Email</span><input type="email" value={studentForm.email} onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })} required /></label>
+                  <label className="field"><span>Département</span><input value={studentForm.department} onChange={(e) => setStudentForm({ ...studentForm, department: e.target.value })} required /></label>
+                  <label className="field"><span>Niveau</span><input value={studentForm.level} onChange={(e) => setStudentForm({ ...studentForm, level: e.target.value })} required /></label>
+                  <label className="field"><span>ID Utilisateur (optionnel)</span><input type="number" value={studentForm.userId} onChange={(e) => setStudentForm({ ...studentForm, userId: e.target.value })} placeholder="Laisser vide pour ne pas lier" /></label>
+                </div>
+                <div className="actions">
+                  <button>Mettre à jour</button>
+                  <button className="secondary" type="button" onClick={() => setStudentForm(initialStudent)}>Annuler</button>
+                </div>
+              </form>
             </div>
-            <div className="actions">
-              <button>{studentForm.id ? 'Mettre à jour' : 'Créer'}</button>
-              <button className="secondary" type="button" onClick={() => setStudentForm(initialStudent)}>Réinitialiser</button>
-            </div>
-          </form>
+          )}
           <div className="table-wrap">
             <table>
               <thead><tr><th>ID</th><th>Code</th><th>Nom</th><th>Email</th><th>Action</th></tr></thead>
@@ -398,7 +439,7 @@ export default function AdminPage() {
                     <td>{s.email}</td>
                     <td className="actions">
                       <button type="button" onClick={() => setStudentForm({ ...s, userId: s.userId || '' })}>Éditer</button>
-                      <button type="button" className="danger" onClick={() => deleteItem('students', s.id)}>Supprimer</button>
+                      <button type="button" className="danger" onClick={() => confirmDelete('students', s.id)}>Supprimer</button>
                     </td>
                   </tr>
                 ))}
@@ -409,20 +450,27 @@ export default function AdminPage() {
 
         <article className="card">
           <h3>Enseignants</h3>
-          <form className="grid" onSubmit={handleTeacherSubmit}>
-            <div className="form-grid">
-              <label className="field"><span>Prénom</span><input value={teacherForm.firstName} onChange={(e) => setTeacherForm({ ...teacherForm, firstName: e.target.value })} required /></label>
-              <label className="field"><span>Nom</span><input value={teacherForm.lastName} onChange={(e) => setTeacherForm({ ...teacherForm, lastName: e.target.value })} required /></label>
-              <label className="field"><span>Email</span><input type="email" value={teacherForm.email} onChange={(e) => setTeacherForm({ ...teacherForm, email: e.target.value })} required /></label>
-              <label className="field"><span>Grade</span><input value={teacherForm.rank} onChange={(e) => setTeacherForm({ ...teacherForm, rank: e.target.value })} required /></label>
-              <label className="field"><span>Spécialité</span><input value={teacherForm.specialty} onChange={(e) => setTeacherForm({ ...teacherForm, specialty: e.target.value })} required /></label>
-              <label className="field"><span>ID Utilisateur (optionnel)</span><input type="number" value={teacherForm.userId} onChange={(e) => setTeacherForm({ ...teacherForm, userId: e.target.value })} /></label>
+
+          {teacherForm.id && (
+            <div style={{ marginBottom: '1.5rem', padding: '1rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <h4 style={{ marginTop: 0, color: '#0f3c78', marginBottom: '1rem' }}>Modifier l'enseignant</h4>
+              <form className="grid" onSubmit={handleTeacherSubmit}>
+                <div className="form-grid">
+                  <label className="field"><span>Prénom</span><input value={teacherForm.firstName} onChange={(e) => setTeacherForm({ ...teacherForm, firstName: e.target.value })} required /></label>
+                  <label className="field"><span>Nom</span><input value={teacherForm.lastName} onChange={(e) => setTeacherForm({ ...teacherForm, lastName: e.target.value })} required /></label>
+                  <label className="field"><span>Email</span><input type="email" value={teacherForm.email} onChange={(e) => setTeacherForm({ ...teacherForm, email: e.target.value })} required /></label>
+                  <label className="field"><span>Grade</span><input value={teacherForm.rank} onChange={(e) => setTeacherForm({ ...teacherForm, rank: e.target.value })} required /></label>
+                  <label className="field"><span>Spécialité</span><input value={teacherForm.specialty} onChange={(e) => setTeacherForm({ ...teacherForm, specialty: e.target.value })} required /></label>
+                  <label className="field"><span>ID Utilisateur (optionnel)</span><input type="number" value={teacherForm.userId} onChange={(e) => setTeacherForm({ ...teacherForm, userId: e.target.value })} /></label>
+                </div>
+                <div className="actions">
+                  <button>Mettre à jour</button>
+                  <button className="secondary" type="button" onClick={() => setTeacherForm(initialTeacher)}>Annuler</button>
+                </div>
+              </form>
             </div>
-            <div className="actions">
-              <button>{teacherForm.id ? 'Mettre à jour' : 'Créer'}</button>
-              <button className="secondary" type="button" onClick={() => setTeacherForm(initialTeacher)}>Réinitialiser</button>
-            </div>
-          </form>
+          )}
+
           <div className="table-wrap">
             <table>
               <thead><tr><th>ID</th><th>Nom</th><th>Email</th><th>Spécialité</th><th>Action</th></tr></thead>
@@ -435,7 +483,7 @@ export default function AdminPage() {
                     <td>{t.specialty}</td>
                     <td className="actions">
                       <button type="button" onClick={() => setTeacherForm({ ...t, userId: t.userId || '' })}>Éditer</button>
-                      <button type="button" className="danger" onClick={() => deleteItem('teachers', t.id)}>Supprimer</button>
+                      <button type="button" className="danger" onClick={() => confirmDelete('teachers', t.id)}>Supprimer</button>
                     </td>
                   </tr>
                 ))}
@@ -453,7 +501,11 @@ export default function AdminPage() {
               <label className="field"><span>Code</span><input value={roomForm.code} onChange={(e) => setRoomForm({ ...roomForm, code: e.target.value })} required /></label>
               <label className="field"><span>Nom</span><input value={roomForm.name} onChange={(e) => setRoomForm({ ...roomForm, name: e.target.value })} required /></label>
               <label className="field"><span>Bâtiment</span><input value={roomForm.building} onChange={(e) => setRoomForm({ ...roomForm, building: e.target.value })} required /></label>
-              <label className="field"><span>Capacité</span><input type="number" min="1" value={roomForm.capacity} onChange={(e) => setRoomForm({ ...roomForm, capacity: Number(e.target.value) })} required /></label>
+              <label className="field">
+                <span>Capacité</span>
+                <input type="number" min="1" value={roomForm.capacity} onChange={(e) => setRoomForm({ ...roomForm, capacity: Number(e.target.value) })} required />
+                {fieldErrors.roomCapacity && <span className="field-error">{fieldErrors.roomCapacity}</span>}
+              </label>
             </div>
             <div className="actions">
               <button>{roomForm.id ? 'Mettre à jour' : 'Créer'}</button>
@@ -472,7 +524,7 @@ export default function AdminPage() {
                     <td>{r.building}</td>
                     <td className="actions">
                       <button type="button" onClick={() => setRoomForm({ ...r })}>Éditer</button>
-                      <button type="button" className="danger" onClick={() => deleteItem('rooms', r.id)}>Supprimer</button>
+                      <button type="button" className="danger" onClick={() => confirmDelete('rooms', r.id)}>Supprimer</button>
                     </td>
                   </tr>
                 ))}
@@ -506,7 +558,11 @@ export default function AdminPage() {
                 </select>
               </label>
               <label className="field"><span>Début</span><input type="datetime-local" value={defenseForm.startDateTime} onChange={(e) => setDefenseForm({ ...defenseForm, startDateTime: e.target.value })} required /></label>
-              <label className="field"><span>Fin</span><input type="datetime-local" value={defenseForm.endDateTime} onChange={(e) => setDefenseForm({ ...defenseForm, endDateTime: e.target.value })} required /></label>
+              <label className="field">
+                <span>Fin</span>
+                <input type="datetime-local" value={defenseForm.endDateTime} onChange={(e) => setDefenseForm({ ...defenseForm, endDateTime: e.target.value })} required />
+                {fieldErrors.defenseDates && <span className="field-error">{fieldErrors.defenseDates}</span>}
+              </label>
               <label className="field"><span>Statut</span>
                 <select value={defenseForm.status} onChange={(e) => setDefenseForm({ ...defenseForm, status: e.target.value })}>
                   {defenseStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
@@ -543,9 +599,9 @@ export default function AdminPage() {
                   <td>{d.publicationStatus}</td>
                   <td className="actions">
                     <button type="button" onClick={() => editDefense(d)}>Éditer</button>
-                    <button type="button" className="danger" onClick={() => deleteItem('defenses', d.id)}>Supprimer</button>
+                    <button type="button" className="danger" onClick={() => confirmDelete('defenses', d.id)}>Supprimer</button>
                     {d.publicationStatus !== 'PUBLISHED' && (
-                      <button type="button" className="success" onClick={() => publishDefense(d.id)}>Publier</button>
+                      <button type="button" className="success" onClick={() => confirmPublishDefense(d.id)}>Publier</button>
                     )}
                   </td>
                 </tr>
@@ -608,9 +664,20 @@ export default function AdminPage() {
               <button type="button" onClick={() => setJuryRows([...juryRows, { teacherId: '', juryRole: 'EXAMINATEUR' }])}>Ajouter membre</button>
               <button type="button" className="success" onClick={saveJuryAssignments}>Enregistrer jury</button>
             </div>
+            {fieldErrors.jury && <span className="field-error" style={{ display: 'block', marginTop: '0.5rem' }}>{fieldErrors.jury}</span>}
           </>
         )}
       </section>
+      
+      <ConfirmModal
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmText={confirmDialog.confirmText}
+        confirmVariant={confirmDialog.confirmVariant}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+      />
     </div>
   );
 }

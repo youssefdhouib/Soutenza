@@ -57,10 +57,15 @@ public class StudentService {
     }
 
     public void delete(Long id) {
-        if (!studentRepository.existsById(id)) {
-            throw new ApiException("STUDENT_NOT_FOUND", HttpStatus.NOT_FOUND, "Etudiant introuvable");
+        Student student = studentRepository.findById(id)
+                .orElseThrow(() -> new ApiException("STUDENT_NOT_FOUND", HttpStatus.NOT_FOUND, "Etudiant introuvable"));
+                
+        User user = student.getUser();
+        studentRepository.delete(student);
+        
+        if (user != null) {
+            userRepository.delete(user);
         }
-        studentRepository.deleteById(id);
     }
 
     private void applyRequest(Student student, StudentRequest request) {

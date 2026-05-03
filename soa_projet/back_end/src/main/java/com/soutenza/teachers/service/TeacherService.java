@@ -55,10 +55,15 @@ public class TeacherService {
     }
 
     public void delete(Long id) {
-        if (!teacherRepository.existsById(id)) {
-            throw new ApiException("TEACHER_NOT_FOUND", HttpStatus.NOT_FOUND, "Enseignant introuvable");
+        Teacher teacher = teacherRepository.findById(id)
+                .orElseThrow(() -> new ApiException("TEACHER_NOT_FOUND", HttpStatus.NOT_FOUND, "Enseignant introuvable"));
+                
+        User user = teacher.getUser();
+        teacherRepository.delete(teacher);
+        
+        if (user != null) {
+            userRepository.delete(user);
         }
-        teacherRepository.deleteById(id);
     }
 
     private void ensureUniqueEmail(String email, Long currentId) {

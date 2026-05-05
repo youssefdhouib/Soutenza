@@ -6,6 +6,19 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [theme, setTheme] = useState(() => {
+    const saved = localStorage.getItem('soutenza_theme');
+    return saved || 'light';
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('soutenza_theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'light' ? 'dark' : 'light');
+  };
 
   const refreshMe = async () => {
     try {
@@ -55,8 +68,10 @@ export function AuthProvider({ children }) {
       logout,
       refreshMe,
       hasRole: (role) => user?.roles?.includes(role),
+      theme,
+      toggleTheme,
     }),
-    [user, loading],
+    [user, loading, theme],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

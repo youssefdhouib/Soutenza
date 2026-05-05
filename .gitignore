@@ -1,0 +1,10 @@
+# Root ignore
+**/target/
+**/node_modules/
+**/dist/
+**/.idea/
+**/.vscode/
+*.log
+.DS_Store
+Thumbs.db
+.env

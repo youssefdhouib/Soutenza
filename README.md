@@ -56,15 +56,12 @@ Avant de commencer, assurez-vous d'avoir installé :
    ```powershell
    $env:JAVA_HOME="C:\Program Files\Java\jdk-21"
    $env:PATH="$env:JAVA_HOME\bin;$env:PATH"
-   $env:MAIL_USERNAME="votre-email@gmail.com"
-   $env:MAIL_PASSWORD="votre-mot-de-passe-app-gmail"
-   $env:MAIL_FROM="votre-email@gmail.com"
    ```
    *(Si votre mot de passe MySQL n'est pas `inter`, mettez-le à jour dans `back_end/src/main/resources/application.properties`)*
 
 4. **Lancer le serveur Spring Boot**
    ```powershell
-   .\mvnw spring-boot:run
+   cmd /c mvnw.cmd clean spring-boot:run
    ```
    Le backend sera accessible sur : `http://localhost:9006`
 

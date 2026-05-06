@@ -8,6 +8,7 @@ import com.soutenza.defenses.domain.PublicationStatus;
 import com.soutenza.defenses.dto.DefenseRequest;
 import com.soutenza.defenses.dto.DefenseResponse;
 import com.soutenza.defenses.repository.DefenseRepository;
+import com.soutenza.grades.repository.GradeRepository;
 import com.soutenza.rooms.domain.Room;
 import com.soutenza.rooms.repository.RoomRepository;
 import com.soutenza.students.domain.Student;
@@ -21,23 +22,27 @@ import java.util.List;
 
 @Service
 public class DefenseService {
+    private static final int REQUIRED_REVIEWERS = 3;
 
     private final DefenseRepository defenseRepository;
     private final StudentRepository studentRepository;
     private final TeacherRepository teacherRepository;
     private final RoomRepository roomRepository;
     private final ConflictCheckingService conflictCheckingService;
+    private final GradeRepository gradeRepository;
 
     public DefenseService(DefenseRepository defenseRepository,
                           StudentRepository studentRepository,
                           TeacherRepository teacherRepository,
                           RoomRepository roomRepository,
-                          ConflictCheckingService conflictCheckingService) {
+                          ConflictCheckingService conflictCheckingService,
+                          GradeRepository gradeRepository) {
         this.defenseRepository = defenseRepository;
         this.studentRepository = studentRepository;
         this.teacherRepository = teacherRepository;
         this.roomRepository = roomRepository;
         this.conflictCheckingService = conflictCheckingService;
+        this.gradeRepository = gradeRepository;
     }
 
     public List<DefenseResponse> findAll() {
@@ -133,6 +138,8 @@ public class DefenseService {
     public DefenseResponse toResponse(Defense defense) {
         String studentName = defense.getStudent().getFirstName() + " " + defense.getStudent().getLastName();
         String supervisorName = defense.getSupervisor().getFirstName() + " " + defense.getSupervisor().getLastName();
+        int gradedByCount = (int) Math.min(gradeRepository.countByDefenseId(defense.getId()), REQUIRED_REVIEWERS);
+        int juryCount = REQUIRED_REVIEWERS;
 
         return new DefenseResponse(
                 defense.getId(),
@@ -148,6 +155,8 @@ public class DefenseService {
                 defense.getEndDateTime(),
                 defense.getStatus(),
                 defense.getPublicationStatus(),
+                gradedByCount,
+                juryCount,
                 defense.getFinalAverage(),
                 defense.getFinalMention() != null ? defense.getFinalMention().getLabel() : null,
                 defense.getPublishedAt(),

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ChangePasswordModal from './ChangePasswordModal';
+import logo from '../assets/soutenza-logo.svg';
 
 const roleHome = {
   ADMIN: '/admin',
@@ -34,7 +35,7 @@ export default function AppLayout({ children }) {
     <div className="app-shell">
       <header className="topbar">
         <button className="brand-btn" onClick={() => navigate(defaultRoute)}>
-          <span className="brand-dot" />
+          <img src={logo} alt="Soutenza logo" className="brand-logo" />
           Soutenza
         </button>
 

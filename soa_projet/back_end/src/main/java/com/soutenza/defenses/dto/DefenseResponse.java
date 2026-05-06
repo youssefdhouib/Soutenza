@@ -20,6 +20,8 @@ public record DefenseResponse(
         LocalDateTime endDateTime,
         DefenseStatus status,
         PublicationStatus publicationStatus,
+        Integer gradedByCount,
+        Integer juryCount,
         BigDecimal finalAverage,
         String finalMention,
         LocalDateTime publishedAt,

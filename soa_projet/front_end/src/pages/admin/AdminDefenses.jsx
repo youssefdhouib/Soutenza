@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import client, { extractApiError } from '../../api/client';
 import { StatusPill } from './AdminOverview';
 
@@ -17,10 +17,50 @@ function normalizePayload(model) {
   return p;
 }
 
+function getGradingBadgeClass(graded, total) {
+  if (!total || total <= 0) return 'badge-gray';
+  if (graded >= total) return 'badge-green';
+  if (graded >= Math.ceil(total / 2)) return 'badge-amber';
+  return 'badge-red';
+}
+
+function getGradingRowClass(graded, total) {
+  if (graded >= total) return 'defense-row-complete';
+  if (graded > 0) return 'defense-row-progress';
+  return 'defense-row-waiting';
+}
+
 export default function AdminDefenses({ defenses, students, teachers, rooms, onReload, setMessage, setError }) {
   const [form, setForm] = useState(initialDefense);
   const [fieldError, setFieldError] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [gradeCounts, setGradeCounts] = useState({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadGradeCounts = async () => {
+      if (!defenses.length) {
+        setGradeCounts({});
+        return;
+      }
+      try {
+        const entries = await Promise.all(
+          defenses.map(async (d) => {
+            const res = await client.get(`/defenses/${d.id}/grades`);
+            return [d.id, Array.isArray(res.data) ? res.data.length : 0];
+          })
+        );
+        if (!cancelled) {
+          setGradeCounts(Object.fromEntries(entries));
+        }
+      } catch {
+        // Keep fallback values from defenses payload if this secondary fetch fails.
+      }
+    };
+
+    loadGradeCounts();
+    return () => { cancelled = true; };
+  }, [defenses]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -147,14 +187,21 @@ export default function AdminDefenses({ defenses, students, teachers, rooms, onR
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>#</th><th>Sujet</th><th>Étudiant</th><th>Encadrant</th><th>Salle</th><th>Créneau</th><th>Statut</th><th>Pub.</th><th>Actions</th></tr>
+              <tr><th>#</th><th>Sujet</th><th>Étudiant</th><th>Encadrant</th><th>Salle</th><th>Créneau</th><th>Notée par</th><th>Statut</th><th>Pub.</th><th>Actions</th></tr>
             </thead>
             <tbody>
               {defenses.length === 0 && (
-                <tr><td colSpan="9"><div className="empty-state"><div className="empty-icon">📋</div><p>Aucune soutenance enregistrée.</p></div></td></tr>
+                <tr><td colSpan="10"><div className="empty-state"><div className="empty-icon">📋</div><p>Aucune soutenance enregistrée.</p></div></td></tr>
               )}
-              {defenses.map(d => (
-                <tr key={d.id}>
+              {defenses.map(d => {
+                const juryCount = 3;
+                const apiCount = gradeCounts[d.id];
+                const gradedByCount = Math.min((apiCount ?? d.gradedByCount ?? 0), juryCount);
+                const fullyGraded = gradedByCount >= juryCount;
+                const gradingLabel = `${gradedByCount}/${juryCount}`;
+
+                return (
+                <tr key={d.id} className={getGradingRowClass(gradedByCount, juryCount)}>
                   <td><span className="badge badge-gray">#{d.id}</span></td>
                   <td><strong style={{ fontSize:'0.85rem' }}>{d.subject}</strong></td>
                   <td style={{ fontSize:'0.82rem' }}>{d.studentName}</td>
@@ -162,6 +209,11 @@ export default function AdminDefenses({ defenses, students, teachers, rooms, onR
                   <td style={{ fontSize:'0.82rem' }}>{d.roomName}</td>
                   <td style={{ fontSize:'0.78rem', color:'var(--text-2)', whiteSpace:'nowrap' }}>
                     {d.startDateTime?.slice(0,16).replace('T',' ')}<br/>→ {d.endDateTime?.slice(0,16).replace('T',' ')}
+                  </td>
+                  <td>
+                    <span className={`badge ${getGradingBadgeClass(gradedByCount, juryCount)}`} title="Nombre de professeurs ayant noté la soutenance">
+                      {gradingLabel}
+                    </span>
                   </td>
                   <td><StatusPill status={d.status} /></td>
                   <td>
@@ -174,12 +226,20 @@ export default function AdminDefenses({ defenses, students, teachers, rooms, onR
                       <button className="secondary sm" onClick={() => startEdit(d)}>Éditer</button>
                       <button className="danger sm" onClick={() => handleDelete(d.id)}>Suppr.</button>
                       {d.publicationStatus !== 'PUBLISHED' && (
-                        <button className="success sm" onClick={() => handlePublish(d.id)}>Publier</button>
+                        <button
+                          className="success sm"
+                          onClick={() => handlePublish(d.id)}
+                          disabled={!fullyGraded}
+                          title={fullyGraded ? "Les 3 roles ont noté" : `Publication bloquée: ${gradingLabel}`}
+                        >
+                          Publier
+                        </button>
                       )}
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

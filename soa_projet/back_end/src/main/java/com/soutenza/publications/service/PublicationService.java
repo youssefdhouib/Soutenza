@@ -1,5 +1,6 @@
 package com.soutenza.publications.service;
 
+import com.soutenza.common.email.EmailService;
 import com.soutenza.common.exception.ApiException;
 import com.soutenza.defenses.domain.Defense;
 import com.soutenza.defenses.domain.DefenseStatus;
@@ -12,6 +13,7 @@ import com.soutenza.users.domain.User;
 import com.soutenza.users.repository.UserRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 
@@ -23,17 +25,21 @@ public class PublicationService {
     private final UserRepository userRepository;
     private final GradeRepository gradeRepository;
     private final DefenseJuryAssignmentRepository assignmentRepository;
+    private final EmailService emailService;
 
     public PublicationService(DefenseRepository defenseRepository,
                               UserRepository userRepository,
                               GradeRepository gradeRepository,
-                              DefenseJuryAssignmentRepository assignmentRepository) {
+                              DefenseJuryAssignmentRepository assignmentRepository,
+                              EmailService emailService) {
         this.defenseRepository = defenseRepository;
         this.userRepository = userRepository;
         this.gradeRepository = gradeRepository;
         this.assignmentRepository = assignmentRepository;
+        this.emailService = emailService;
     }
 
+    @Transactional
     public Defense publish(Long defenseId, Long publisherUserId) {
         Defense defense = defenseRepository.findById(defenseId)
                 .orElseThrow(() -> new ApiException("DEFENSE_NOT_FOUND", HttpStatus.NOT_FOUND, "Soutenance introuvable"));
@@ -66,6 +72,24 @@ public class PublicationService {
         defense.setPublishedAt(LocalDateTime.now());
         defense.setPublishedBy(publisher);
 
-        return defenseRepository.save(defense);
+        Defense saved = defenseRepository.save(defense);
+
+        String recipientEmail = saved.getStudent().getEmail();
+        if (recipientEmail == null || recipientEmail.isBlank()) {
+            recipientEmail = saved.getStudent().getUser() != null ? saved.getStudent().getUser().getEmail() : null;
+        }
+        if (recipientEmail == null || recipientEmail.isBlank()) {
+            throw new ApiException("STUDENT_EMAIL_MISSING", HttpStatus.BAD_REQUEST, "Email etudiant introuvable pour notification");
+        }
+
+        emailService.sendResultPublishedEmail(
+                recipientEmail,
+                saved.getStudent().getFirstName() + " " + saved.getStudent().getLastName(),
+                saved.getSubject(),
+                saved.getFinalAverage(),
+                saved.getFinalMention() != null ? saved.getFinalMention().getLabel() : null
+        );
+
+        return saved;
     }
 }
